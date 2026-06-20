@@ -846,35 +846,42 @@ function showReasonPrompt(changes) {
 function viewAuditTrail() {
   const t = currentDetailTest;
   if(!t) return;
+  const testId = t.id; // capture id — not the object reference — to avoid closure issues
   
-  // Hide edit-mode buttons, show back button
+  // Hide view-mode buttons
   document.getElementById('modalAuditBtn').style.display = 'none';
   document.getElementById('modalEditBtn').style.display = 'none';
   document.getElementById('modalExportBtn').style.display = 'none';
   
-  if(!document.getElementById('modalBackBtn')) {
-    const backBtn = document.createElement('button');
+  // Back button — always recreate onclick to avoid stale closure
+  let backBtn = document.getElementById('modalBackBtn');
+  if(!backBtn) {
+    backBtn = document.createElement('button');
     backBtn.id = 'modalBackBtn';
     backBtn.style.cssText = 'font-size:11px;padding:6px 14px;border-radius:8px;border:1.5px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;font-family:Rajdhani,sans-serif;font-weight:700;';
     backBtn.textContent = '← Back';
-    backBtn.onclick = () => {
-      backBtn.style.display = 'none';
-      document.getElementById('modalAuditBtn').style.display = '';
-      document.getElementById('modalEditBtn').style.display = '';
-      document.getElementById('modalExportBtn').style.display = '';
-      viewDetail(t.id);
-    };
     document.getElementById('modalAuditBtn').parentElement.insertBefore(backBtn, document.getElementById('modalAuditBtn'));
-  } else {
-    document.getElementById('modalBackBtn').style.display = '';
   }
+  backBtn.style.display = '';
+  // Always reassign onclick with fresh testId so back always goes to the correct test
+  backBtn.onclick = () => {
+    backBtn.style.display = 'none';
+    document.getElementById('modalAuditBtn').style.display = '';
+    document.getElementById('modalEditBtn').style.display = '';
+    document.getElementById('modalExportBtn').style.display = '';
+    viewDetail(testId);
+  };
   
   document.getElementById('modalTitle').textContent = `AUDIT TRAIL — ${t.jobNumber} / ${t.testNumber}`;
   document.getElementById('modalBody').innerHTML = `<div style="text-align:center;padding:30px;color:#9ca3af;"><div style="font-size:28px;">⏳</div><div style="font-size:12px;margin-top:8px;">Loading audit logs...</div></div>`;
   
-  db.ref(`editLogs/${t.id}`).orderByChild('editedAt').once('value', snap => {
+  // Use orderByKey — push() keys are already chronologically ordered, always works without index
+  db.ref(`editLogs/${testId}`).orderByKey().once('value', snap => {
     const logs = [];
-    snap.forEach(child => logs.push(child.val()));
+    snap.forEach(child => {
+      const val = child.val();
+      if(val && typeof val === 'object') logs.push(val);
+    });
     logs.reverse(); // newest first
     
     if(logs.length === 0) {
@@ -882,33 +889,34 @@ function viewAuditTrail() {
         <div class="audit-empty">
           <div class="audit-empty-icon">📋</div>
           <div style="font-weight:700;font-size:14px;color:#374151;">No edit history</div>
-          <div style="font-size:12px;margin-top:6px;">This test has not been edited from the dashboard yet.</div>
+          <div style="font-size:12px;margin-top:6px;">This test has not been edited yet.</div>
         </div>`;
       return;
     }
     
     let html = `<div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
       <div style="font-size:12px;color:#6b7280;">${logs.length} edit(s) recorded</div>
-      <button onclick="exportAuditCSV('${t.id}')" style="padding:5px 12px;border-radius:6px;border:1.5px solid #c7d2fe;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:700;cursor:pointer;font-family:'Rajdhani',sans-serif;">⬇ Export CSV</button>
+      <button onclick="exportAuditCSV('${testId}')" style="padding:5px 12px;border-radius:6px;border:1.5px solid #c7d2fe;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:700;cursor:pointer;font-family:'Rajdhani',sans-serif;">⬇ Export CSV</button>
     </div>`;
     
-    logs.forEach(log => {
+    logs.forEach((log, li) => {
       const dt = new Date(log.editedAt);
       const dateStr = dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
       const timeStr = dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+      
       const fromApp = log.editedFrom === 'app';
       const sourceBadge = fromApp
-        ? `<span class="audit-badge" style="background:#dcfce7;color:#166534;">📱 App</span>`
-        : `<span class="audit-badge" style="background:#e0e7ff;color:#3730a3;">🖥 Dashboard</span>`;
+        ? `<span class="audit-badge" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;">📱 App</span>`
+        : `<span class="audit-badge" style="background:#e0e7ff;color:#3730a3;border:1px solid #c7d2fe;">🖥️ Dashboard</span>`;
       
       const changes = log.changes || {};
-      const changeCount = Object.keys(changes).length;
+      const changeKeys = Object.keys(changes);
       
       html += `<div class="audit-entry">
         <div class="audit-header">
-          <span class="audit-badge audit-badge-edit">✏️ Edit</span>
+          <span class="audit-badge audit-badge-edit">✏️ Edit #${logs.length - li}</span>
           ${sourceBadge}
-          <span class="audit-time">${dateStr} &nbsp;${timeStr}</span>
+          <span class="audit-time">${dateStr}&nbsp;&nbsp;${timeStr}</span>
           <span class="audit-by">👤 ${log.editedBy||'unknown'}</span>
         </div>`;
       
@@ -916,27 +924,35 @@ function viewAuditTrail() {
         html += `<div class="audit-reason"><span>Reason: </span>${log.reason}</div>`;
       }
       
-      if(changeCount === 0) {
+      if(changeKeys.length === 0) {
         html += `<div class="audit-no-changes">No field changes recorded.</div>`;
       } else {
         html += `<div class="audit-changes">`;
-        Object.entries(changes).forEach(([key, val]) => {
+        changeKeys.forEach(key => {
+          const val = changes[key];
           if(key === 'readings') {
-            Object.entries(val).forEach(([cell, v]) => {
-              html += `<div class="audit-change-row">
-                <span class="audit-field">📊 ${cell}</span>
-                <span class="audit-from">${v.from}</span>
-                <span class="audit-arrow">→</span>
-                <span class="audit-to">${v.to}</span>
-              </div>`;
-            });
+            // readings is nested: { "NORTH @ 1m": {from, to}, ... }
+            if(val && typeof val === 'object') {
+              Object.entries(val).forEach(([cell, v]) => {
+                if(v && v.from !== undefined) {
+                  html += `<div class="audit-change-row">
+                    <span class="audit-field">📊 ${cell}</span>
+                    <span class="audit-from">${v.from}</span>
+                    <span class="audit-arrow">→</span>
+                    <span class="audit-to">${v.to}</span>
+                  </div>`;
+                }
+              });
+            }
           } else {
-            html += `<div class="audit-change-row">
-              <span class="audit-field">${val.label||key}</span>
-              <span class="audit-from">${val.from}</span>
-              <span class="audit-arrow">→</span>
-              <span class="audit-to">${val.to}</span>
-            </div>`;
+            if(val && val.from !== undefined) {
+              html += `<div class="audit-change-row">
+                <span class="audit-field">${val.label||key}</span>
+                <span class="audit-from">${val.from}</span>
+                <span class="audit-arrow">→</span>
+                <span class="audit-to">${val.to}</span>
+              </div>`;
+            }
           }
         });
         html += `</div>`;
