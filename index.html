@@ -363,6 +363,8 @@ db.ref('photos').on('value', snap => {
   });
 });
 
+} // end initDashboard
+
 // ─── STATS ────────────────────────────────────────────────────────────────────
 function updateStats() {
   const today = new Date().toISOString().split('T')[0];
@@ -1525,7 +1527,6 @@ window.downloadSinglePhoto = function(id, idx) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 };
 
-} // end initDashboard
 </script>
 </div><!-- end dashboardMain -->
 </body>
