@@ -190,7 +190,7 @@
   </div>
 
   <!-- Bulk actions bar -->
-  <div id="bulkBar" style="display:none;background:#eef2ff;border:1.5px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:12px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+  <div id="bulkBar" style="display:none;position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:500;max-width:calc(100% - 32px);background:#eef2ff;border:1.5px solid var(--border);border-radius:10px;padding:10px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.18);align-items:center;gap:12px;flex-wrap:wrap;">
     <span id="bulkCount" style="font-family:'Rajdhani',sans-serif;font-weight:700;font-size:14px;color:var(--accent);">0 selected</span>
     <button class="btn btn-primary" style="padding:8px 16px;font-size:12px;" onclick="exportSelectedExcel()">📊 Export Selected</button>
     <button class="btn btn-primary" style="padding:8px 16px;font-size:12px;background:#7c3aed;" onclick="exportSelectedPDF()">📄 PDF Selected</button>
@@ -295,6 +295,20 @@ let filteredTests = [];
 let photos = {};
 let currentDetailTest = null;
 let isDashboardInitialized = false; // Guard against multiple initializations
+
+// ─── DATE FORMAT dd/mm/yyyy ───────────────────────────────────────────────────
+function fmtDate(v){
+  if(!v) return '';
+  const s=String(v);
+  const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m) return m[3]+'/'+m[2]+'/'+m[1];
+  const d=new Date(v); if(isNaN(d)) return s;
+  return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+}
+function fmtDateTime(v){
+  const d=new Date(v); if(isNaN(d)) return String(v||'');
+  return fmtDate(d)+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+}
 
 function initDashboard() {
 
@@ -475,7 +489,7 @@ function renderTable() {
             <td><strong style="cursor:pointer;color:var(--accent);" onclick="filterByJob('${t.jobNumber}')">${t.jobNumber||'—'}</strong></td>
             <td><span class="badge badge-blue">${t.testNumber||'—'}</span></td>
             <td>${t.pointOf||'—'}</td>
-            <td style="font-family:'Share Tech Mono',monospace;font-size:12px;">${t.testDate||'—'}</td>
+            <td style="font-family:'Share Tech Mono',monospace;font-size:12px;">${fmtDate(t.testDate)||'—'}</td>
             <td style="font-family:'Share Tech Mono',monospace;font-size:11px;">${timeStr}</td>
             <td>${t.cityName||'—'}</td>
             <td>${t.stateName||'—'}</td>
@@ -514,7 +528,7 @@ function viewDetail(id) {
     <div class="info-chip"><div class="info-chip-label">Job Number</div><div class="info-chip-val">${t.jobNumber||'—'}</div></div>
     <div class="info-chip"><div class="info-chip-label">Test Number</div><div class="info-chip-val">${t.testNumber||'—'}</div></div>
     <div class="info-chip"><div class="info-chip-label">Point Id</div><div class="info-chip-val">${t.pointOf||'—'}</div></div>
-    <div class="info-chip"><div class="info-chip-label">Date</div><div class="info-chip-val">${t.testDate||'—'}</div></div>
+    <div class="info-chip"><div class="info-chip-label">Date</div><div class="info-chip-val">${fmtDate(t.testDate)||'—'}</div></div>
     <div class="info-chip"><div class="info-chip-label">Temperature</div><div class="info-chip-val">${t.temperature?t.temperature+'°C':'—'}</div></div>
     <div class="info-chip"><div class="info-chip-label">Humidity</div><div class="info-chip-val">${t.humidity?t.humidity+'%':'—'}</div></div>
     <div class="info-chip"><div class="info-chip-label">City / Village</div><div class="info-chip-val">${t.cityName||'—'}</div></div>
@@ -636,9 +650,9 @@ function enterEditMode() {
   html += `<div class="section-title">Resistance of Soil (Ω) — Edit Values</div>
   <div style="overflow-x:auto;"><table class="data-table">
     <thead><tr><th class="dir-col">Direction</th>${(t.spacings||[]).map(sp=>`<th>${sp} m</th>`).join('')}</tr></thead>
-    <tbody>`;
+    <tbody id="editReadingsBody">`;
   (t.directions||[]).forEach(dir => {
-    html += `<tr><td class="dir-name">${dir}</td>`;
+    html += `<tr data-dir="${dir}"><td class="dir-name">${dir}</td>`;
     (t.spacings||[]).forEach(sp => {
       const val = (t.readings||{})[dir]?.[sp];
       const safeDir = dir.replace(/[^a-zA-Z0-9]/g,'_');
@@ -648,9 +662,35 @@ function enterEditMode() {
     html += `</tr>`;
   });
   html += `</tbody></table></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+    <input id="newDirInput" placeholder="New direction e.g. NORTH-EAST" maxlength="30" onkeydown="if(event.key==='Enter'){event.preventDefault();addEditDirection();}" style="flex:1;min-width:180px;padding:7px 10px;border:1px solid #c7d2fe;border-radius:6px;font-size:13px;">
+    <button type="button" onclick="addEditDirection()" style="padding:7px 14px;border-radius:6px;border:none;background:#0f766e;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">＋ Add Direction</button>
+  </div>
   <div style="font-size:11px;color:var(--muted);margin-top:8px;">💡 Tip: You can enter numbers or special values: OL (Overload), BR (Boundary Restriction), GR (Ground Restriction)</div>`;
 
   document.getElementById('modalBody').innerHTML = html;
+}
+
+function addEditDirection() {
+  const t = currentDetailTest;
+  const inp = document.getElementById('newDirInput');
+  if(!t || !inp) return;
+  const name = inp.value.trim().toUpperCase();
+  if(!name) { showToast('Enter a direction name', true); return; }
+  if(/[.#$\/\[\]]/.test(name)) { showToast('Direction cannot contain . # $ / [ ]', true); return; }
+  const existing = [...document.querySelectorAll('#editReadingsBody tr[data-dir]')].map(r => r.dataset.dir.toUpperCase());
+  if(existing.includes(name)) { showToast('Direction already exists', true); return; }
+  const tr = document.createElement('tr');
+  tr.dataset.dir = name;
+  tr.dataset.added = '1';
+  let cells = `<td class="dir-name">${name} <button type="button" onclick="this.closest('tr').remove()" title="Remove" style="margin-left:4px;border:none;background:none;color:#dc2626;cursor:pointer;font-size:12px;">✕</button></td>`;
+  (t.spacings||[]).forEach(sp => {
+    cells += `<td><input class="edit-reading" data-dir="${name}" data-sp="${sp}" value="" style="width:60px;padding:4px;border:1px solid #c7d2fe;border-radius:4px;font-size:12px;text-align:center;"></td>`;
+  });
+  tr.innerHTML = cells;
+  document.getElementById('editReadingsBody').appendChild(tr);
+  inp.value = '';
+  showToast(`✔ Direction "${name}" added — enter values and Save`);
 }
 
 function toggleWitnessNameEdit() {
@@ -703,6 +743,11 @@ async function saveEditedData() {
     if(Object.keys(newReadings[dir]).length === 0) delete newReadings[dir];
   });
   if(Object.keys(newReadings).length > 0) updates.readings = newReadings;
+  // Directions added in edit mode
+  const oldDirs = t.directions || [];
+  const formDirs = [...document.querySelectorAll('#editReadingsBody tr[data-dir]')].map(r => r.dataset.dir);
+  const addedDirs = formDirs.filter(d => !oldDirs.includes(d));
+  if(addedDirs.length > 0) updates.directions = [...oldDirs, ...addedDirs];
   
   // Validate required fields
   if(!updates.jobNumber || !updates.testNumber) {
@@ -737,6 +782,9 @@ async function saveEditedData() {
     });
     if(Object.keys(readingChanges).length > 0) changes['readings'] = readingChanges;
   }
+  if(updates.directions) {
+    changes['directions'] = {from: oldDirs.join(', ')||'(empty)', to: updates.directions.join(', '), label:'Directions'};
+  }
   
   // ── Show reason prompt modal ──
   const reason = await showReasonPrompt(changes);
@@ -759,6 +807,7 @@ async function saveEditedData() {
     }
     delete fbUpdates.spacings;
     delete fbUpdates.directions;
+    if(updates.directions) fbUpdates.directions = updates.directions;
     delete fbUpdates.spacingsRaw;
     fbUpdates.editedAt = new Date().toISOString();
     fbUpdates.editedFrom = 'dashboard';
@@ -903,7 +952,7 @@ function viewAuditTrail() {
     
     logs.forEach((log, li) => {
       const dt = new Date(log.editedAt);
-      const dateStr = dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+      const dateStr = fmtDate(dt);
       const timeStr = dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
       
       const fromApp = log.editedFrom === 'app';
@@ -988,7 +1037,7 @@ function exportAuditCSV(testId) {
       changeEntries.forEach(([field, from, to]) => {
         rows.push([
           log.testId, log.jobNumber, log.testNumber, log.pointOf,
-          new Date(log.editedAt).toLocaleString('en-IN'),
+          fmtDateTime(log.editedAt),
           log.editedBy||'unknown', log.editedFrom||'dashboard',
           log.reason||'', field, from, to
         ]);
@@ -1075,7 +1124,7 @@ function showUserWipeModal(mode, ids=[]) {
               <div style="font-weight:700;font-size:13px;color:#111827;">${u.name||u.email.split('@')[0]}</div>
               <div style="font-size:11px;color:#6b7280;">${u.email}</div>
             </div>
-            <div style="margin-left:auto;font-size:10px;color:#9ca3af;">${u.lastSeen?'Last: '+new Date(u.lastSeen).toLocaleDateString('en-IN'):''}</div>
+            <div style="margin-left:auto;font-size:10px;color:#9ca3af;">${u.lastSeen?'Last: '+fmtDate(u.lastSeen):''}</div>
           </div>`).join('')}
       </div>
       <div style="display:flex;gap:10px;">
@@ -1160,13 +1209,13 @@ function buildWorkbook(testList) {
   // Summary
   const sumData = [
     ['ERT FIELD DATA — SUMMARY REPORT'],
-    ['Exported:', new Date().toLocaleString()],
+    ['Exported:', fmtDateTime(new Date())],
     ['Total Tests:', testList.length],
     [],
     ['Job No','Test No','Point Id','Date','Location','Temp (°C)','Humidity (%)','Directions','Spacings']
   ];
   testList.forEach(t => {
-    sumData.push([t.jobNumber,t.testNumber,t.pointOf,t.testDate,t.location||'',t.temperature||'',t.humidity||'',(t.directions||[]).join(', '),(t.spacings||[]).join(', ')]);
+    sumData.push([t.jobNumber,t.testNumber,t.pointOf,fmtDate(t.testDate),t.location||'',t.temperature||'',t.humidity||'',(t.directions||[]).join(', '),(t.spacings||[]).join(', ')]);
   });
   const ws0 = XLSX.utils.aoa_to_sheet(sumData);
   ws0['!cols'] = [14,12,14,12,24,10,12,34,20].map(w=>({wch:w}));
@@ -1177,7 +1226,7 @@ function buildWorkbook(testList) {
   testList.forEach((t, idx) => {
     const rows = [];
     rows.push(['Job Number:', t.jobNumber, '', 'Test Number:', t.testNumber]);
-    rows.push(['Point Id:', t.pointOf, '', 'Date:', t.testDate]);
+    rows.push(['Point Id:', t.pointOf, '', 'Date:', fmtDate(t.testDate)]);
     rows.push(['Location:', t.location||'', '', 'Temperature (°C):', t.temperature||'']);
     rows.push(['Humidity (%):', t.humidity||'', '', 'City/Village:', t.cityName||'']);
     rows.push(['State:', t.stateName||'', '', '', '']);
@@ -1350,7 +1399,7 @@ function buildPDFPage(doc,t){
   lbl(lx,ly,'Witnessed:');val(lv,ly,t.witnessed||'No');ly+=7;
   lbl(lx,ly,'Representative:');val(lv,ly,t.witnessName||'—');
   lbl(rx,ry,'Test Number:');val(rv,ry,t.testNumber);ry+=7;
-  lbl(rx,ry,'Date:');val(rv,ry,t.testDate);ry+=7;
+  lbl(rx,ry,'Date:');val(rv,ry,fmtDate(t.testDate));ry+=7;
   lbl(rx,ry,'Humidity:');val(rv,ry,t.humidity?t.humidity+'%':'—');ry+=7;
   lbl(rx,ry,'State:');val(rv,ry,t.stateName||'—');ry+=7;
   lbl(rx,ry,'Tested By:');val(rv,ry,t.testedBy||'—');ry+=7;
@@ -1487,6 +1536,7 @@ window.quickEdit = quickEdit;
 window.cancelEditMode = cancelEditMode;
 window.saveEditedData = saveEditedData;
 window.toggleWitnessNameEdit = toggleWitnessNameEdit;
+window.addEditDirection = addEditDirection;
 window.viewAuditTrail = viewAuditTrail;
 window.exportAuditCSV = exportAuditCSV;
 window.getSelectedIds = getSelectedIds;
