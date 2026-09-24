@@ -305,6 +305,9 @@ function fmtDate(v){
   const d=new Date(v); if(isNaN(d)) return s;
   return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
 }
+// File names cannot contain "/" — use dd-mm-yyyy there, and make Test No safe
+function fileDate(v){ return fmtDate(v).replace(/\//g,'-'); }
+function fileSafe(v){ return String(v||'').replace(/[\\/:*?"<>|]/g,'-'); }
 function fmtDateTime(v){
   const d=new Date(v); if(isNaN(d)) return String(v||'');
   return fmtDate(d)+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
@@ -754,6 +757,11 @@ async function saveEditedData() {
     showToast('Job Number and Test Number are required', true);
     return;
   }
+  if(updates.testNumber.toLowerCase() !== String(t.testNumber||'').trim().toLowerCase()) {
+    const dupT = allTests.find(x => String(x.id) !== String(t.id) &&
+      String(x.testNumber||'').trim().toLowerCase() === updates.testNumber.toLowerCase());
+    if(dupT) { showToast(`Test Number "${updates.testNumber}" already exists (Job ${dupT.jobNumber})`, true); return; }
+  }
   
   // ── Detect what actually changed (for audit log) ──
   const fieldLabels = {
@@ -1201,7 +1209,7 @@ function exportOneExcel(id) {
 function exportOnePDF(id) {
   const t = allTests.find(x=>x.id==id);
   if (!t) return;
-  fetchSignaturesAndExportPDF([t], `Single_${t.jobNumber}_${t.testNumber}_${t.testDate}`);
+  fetchSignaturesAndExportPDF([t], `Single_${fileSafe(t.jobNumber)}_${fileSafe(t.testNumber)}_${fileDate(t.testDate)}`);
 }
 
 function buildWorkbook(testList) {
@@ -1328,7 +1336,7 @@ function buildAndSavePDF(testList, type) {
     doc.text(`v1.0  |  01.06.2026  |  Page ${p} of ${pageCount}`, 196, 295, {align:'right'});
   }
   
-  const fname = `ERT_${type}_${new Date().toISOString().split('T')[0]}.pdf`;
+  const fname = `ERT_${type}_${fileDate(new Date())}.pdf`;
   doc.save(fname);
   showToast(`✔ PDF with ${testList.length} test(s) exported!`);
 }
